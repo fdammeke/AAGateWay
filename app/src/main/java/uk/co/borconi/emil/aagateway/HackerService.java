@@ -10,13 +10,9 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.hardware.usb.UsbAccessory;
 import android.hardware.usb.UsbManager;
-import android.net.ConnectivityManager;
-import android.net.DhcpInfo;
-import android.net.wifi.WifiManager;
 import android.os.Binder;
 import android.os.Build;
 import android.os.IBinder;
-import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.preference.PreferenceManager;
 import android.util.Log;
@@ -37,11 +33,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.Arrays;
 
-
-
 import static android.app.NotificationManager.IMPORTANCE_HIGH;
-
-
 
 /**
  * Created by Emil on 25/03/2018.
@@ -50,7 +42,6 @@ import static android.app.NotificationManager.IMPORTANCE_HIGH;
 public class HackerService extends Service {
     private static final String TAG = "AAGateWay";
     private NotificationManager mNotificationManager;
-    private Intent notificationIntent;
     private final IBinder mBinder = new LocalBinder();
     private UsbAccessory mAccessory;
     private UsbManager mUsbManager;
@@ -151,7 +142,22 @@ public class HackerService extends Service {
     }
 
     class tcppollthread implements Runnable {
-        private ServerSocket serversocket=null;
+        private ServerSocket serversocket = null;
+        private DatagramSocket broadcastsocket = null;
+        private Socket socket = null;
+
+        public void broadcast(String broadcastMessage,
+                              InetAddress address) throws IOException {
+            broadcastsocket = new DatagramSocket();
+            broadcastsocket.setBroadcast(true);
+
+            byte[] buffer = broadcastMessage.getBytes();
+
+            DatagramPacket packet
+                    = new DatagramPacket(buffer, buffer.length, address, 4455);
+            broadcastsocket.send(packet);
+            broadcastsocket.close();
+        }
 
         public void run() {
             Log.d(TAG,"tcp - run");
@@ -169,19 +175,21 @@ public class HackerService extends Service {
 
                 if (listening) {
                     serversocket = new ServerSocket(5288, 5);
-                    serversocket.setSoTimeout(5000); //die early, die young
+                    serversocket.setSoTimeout(30000); //die early, die young
                     serversocket.setReuseAddress(true);
                     Log.d(TAG, "tcp - listening");
                 }
-                //get the address of the clients connected to this hotspot
-                String[] command = {"ip", "neigh", "show", "dev", "wlan0"};
+
+                // get the address of the clients connected to this hotspot or wifidirect
+                String[] command = {"ip", "neigh", "show"};
                 Process p = Runtime.getRuntime().exec(command);
                 BufferedReader br = new BufferedReader(
                         new InputStreamReader(p.getInputStream()));
                 String line;
                 String phoneaddr = null;
-                byte[] trigbuf = new byte[]{'S'};
                 DatagramSocket trigger = new DatagramSocket();
+
+
                 InetAddress addr;
                 while ((line = br.readLine()) != null) {
                     Log.d(TAG, "tcp - ip neigh output " + line);
@@ -201,10 +209,9 @@ public class HackerService extends Service {
                     }
                     addr = InetAddress.getByName(splitted[0]);
                     if (listening) {
-                        //send to every address, only the phone with AAStarter will try to connect back
-                        Log.d(TAG, "tcp - sending trigger to " + splitted[0]);
-                        DatagramPacket trigpacket = new DatagramPacket(trigbuf, trigbuf.length, addr, 4455);
-                        trigger.send(trigpacket);
+                        // UDP Broadcast, only the phone with AAStarter will try to connect back
+                        Log.d(TAG, "tcp - broadcasting to network");
+                        broadcast("S", InetAddress.getByName("255.255.255.255"));
                     } else {
                         if (addr.isReachable(300)) {
                             Log.d(TAG, "tcp - reachable " + splitted[0]);
@@ -217,7 +224,7 @@ public class HackerService extends Service {
                 if (listening) {
                     socket = serversocket.accept();
                     Log.d(TAG, "tcp - phone has connected back");
-                    socket.setSoTimeout(5000);
+                    socket.setSoTimeout(30000);
                 } else {
                     if (phoneaddr == null) {
                         //no address found
@@ -227,7 +234,7 @@ public class HackerService extends Service {
                     } else {
                         Log.d(TAG, "tcp - connecting to phone " + phoneaddr);
                         socket = new Socket();
-                        socket.setSoTimeout(5000);
+                        socket.setSoTimeout(30000);
                         socket.connect(new InetSocketAddress(phoneaddr, 5277), 500);
                         Log.d(TAG, "tcp - connected");
                     }
@@ -261,7 +268,6 @@ public class HackerService extends Service {
                 }
             }
 
-           //Looper.prepare();
             while (running)
             {
                 try {
@@ -276,11 +282,11 @@ public class HackerService extends Service {
             }
 
             if (serversocket != null) {
-                 try {
-                        serversocket.close();
-                 } catch (IOException e) {
-                        Log.e(TAG, "tcp - closing server socket "+e.getMessage());
-                 }
+                try {
+                    serversocket.close();
+                } catch (IOException e) {
+                    Log.e(TAG, "tcp - closing server socket "+e.getMessage());
+                }
             }
             Log.d(TAG,"tcp - end");
             stopSelf();
@@ -369,7 +375,7 @@ public class HackerService extends Service {
     }
 
     private void processCarMessage(final byte[] buf) throws IOException {
-       socketoutput.write(buf);
+        socketoutput.write(buf);
     }
 
     @Override

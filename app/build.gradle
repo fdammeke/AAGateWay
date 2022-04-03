@@ -5,10 +5,10 @@ android {
     compileSdkVersion 27
     defaultConfig {
         applicationId "uk.co.borconi.emil.aagateway"
-        minSdkVersion 14
+        minSdkVersion 16
         targetSdkVersion 27
         versionCode 1
-        versionName "1.0.3 Alpha"
+        versionName "1.0.4"
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
         multiDexEnabled true
     }
